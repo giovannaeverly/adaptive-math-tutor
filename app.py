@@ -97,6 +97,11 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+MAX_INTERACTIONS = 20
+
+if "interaction_count" not in st.session_state:
+    st.session_state.interaction_count = 0
+
 # AI HOMEWORK HELP
 if st.session_state.get("homework_help_active", False):
 
@@ -124,7 +129,7 @@ if st.session_state.get("homework_help_active", False):
 
     st.write(
         "Learn through personalized, step-by-step guidance. "
-        "Your tutor will help you think through the problem instead of "
+        "Your tutor will help you think through the problem instsead of "
         "simply giving you the answer."
     )
 
@@ -202,17 +207,26 @@ chat_input = st.chat_input(
 student_message = None
 
 if chat_input:
+        
+       
+    if st.session_state.interaction_count >= MAX_INTERACTIONS:
+       st.warning(
+       f"You've reached the {MAX_INTERACTIONS}-message limit for this demo session."
+)
+       st.stop()
 
     # If the child typed
     if chat_input.text:
         student_message = chat_input.text
 
     # If the child recorded audio
-    elif chat_input.audio:
+    elif chat_input.xaudio:
         with st.spinner("Listening... 🎤"):
             student_message = transcribe_audio(chat_input.audio)
 
     if student_message:
+
+        st.session_state.interaction_count += 1
 
         st.session_state.tutor_messages.append(      
             {
