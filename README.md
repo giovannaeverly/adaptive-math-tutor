@@ -2,6 +2,11 @@
 
 An AI-powered math tutor designed to help children solve math problems through guided, step-by-step reasoning rather than simply providing the answer.
 
+## Live Demo
+
+[Try the Adaptive Math Tutor](https://adaptive-math-tutor.streamlit.app)
+
+Experience the tutor directly in your browser — no installation required.
 
 ## About the Project
 Adaptive Math Tutor is an educational AI project that combines generative artificial intelligence woth guided learning. Instead of immediately giving students the final answer, the tutor encourages them to reason through math problems step by step by asking questions, responding to their ideas, and maintaining the context of the conversation.
