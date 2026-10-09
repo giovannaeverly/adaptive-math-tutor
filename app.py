@@ -1,746 +1,398 @@
-#imports
-from ai_helper import ask_gemini, transcribe_audio
+"""Responsive educational Streamlit application."""
+import html
+import random
 import streamlit as st
-from question_bank import questions, worlds
+from ai_helper import ai_available, ask_gemini, transcribe_audio
+from engine import WORLDS, LEVEL_NAMES, starting_level, next_level, change_level, generate_exercise, parse_answer
 
-# SESSION STATE DEFAULTS
-if "tutor_messages" not in st.session_state:
-    st.session_state.tutor_messages = []
-
-if "homework_help_active" not in st.session_state:
-    st.session_state.homework_help_active = False
-
-if "started" not in st.session_state:
-    st.session_state.started = False
-
-if "age" not in st.session_state:
-    st.session_state.age = None
-
-
-# PAGE SETTINGS
-st.set_page_config(
-    page_title="Adaptive Math Tutor",
-    page_icon="✨",
-    layout="centered"
-)
-
-
-# VISUAL STYLE
-st.markdown(
-    """
-    <style>
-
-    .stApp {
-        background: linear-gradient(
-            135deg,
-            #f8f7ff 0%,
-            #eef8ff 50%,
-            #fff7ec 100%
-        );
-    }
-
-    .block-container {
-        max-width: 850px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-
-    .hero {
-        padding: 30px;
-        border-radius: 28px;
-        background: white;
-        text-align: center;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.07);
-        margin-bottom: 25px;
-    }
-
-    .hero h1 {
-        font-size: 42px;
-        margin-bottom: 5px;
-    }
-
-    .hero p {
-        font-size: 18px;
-        color: #666;
-    }
-
-    .question-card {
-        background: white;
-        padding: 30px;
-        border-radius: 24px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.07);
-        margin-top: 20px;
-        margin-bottom: 20px;
-    }
-
-    .world-tag {
-        font-size: 18px;
-        font-weight: 700;
-        margin-bottom: 15px;
-    }
-
-    div.stButton > button {
-        border-radius: 16px;
-        height: 3.2rem;
-        font-size: 17px;
-        font-weight: 700;
-    }
-
-    div[data-testid="stMetric"] {
-        background: white;
-        padding: 15px;
-        border-radius: 18px;
-        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-MAX_INTERACTIONS = 20
-
-if "interaction_count" not in st.session_state:
-    st.session_state.interaction_count = 0
-
-# AI HOMEWORK HELP
-if st.session_state.get("homework_help_active", False):
-
-    st.title("📚 AI Math Tutor")
-    age = st.session_state.get("age", None)
-
-
-    if age:
-        st.markdown(
-        f"""
-        <div style="
-            display: inline-block;
-            background: #f1edff;
-            padding: 7px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 18px;
-        ">
-            ✨ Learning for age {age}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.write(
-        "Learn through personalized, step-by-step guidance. "
-        "Your tutor will help you think through the problem instsead of "
-        "simply giving you the answer."
-    )
-
-    if st.button("← Back to Home", key="homework_back"):
-        st.session_state.homework_help_active = False
-        st.session_state.tutor_messages = []
-        st.rerun()
-
-    if "homework_help_active" not in st.session_state:
-        st.session_state.homework_help_active = False
-
-    if "tutor_messages" not in st.session_state:
-        st.session_state.tutor_messages = []
-
-    if "started" not in st.session_state:
-        st.session_state.started = False
-        st.stop()
-
-    # Create conversation memory
-    if "tutor_messages" not in st.session_state:
-         st.session_state.tutor_messages = []
-
-# Welcome message shown before the conversation starts
-    if not st.session_state.tutor_messages:
-         st.markdown(
-        """
-        ...
-        """,
-        unsafe_allow_html=True
-    )
-    if not st.session_state.tutor_messages:
-         st.markdown(
-            """
-            <div style="
-            background: white;
-            padding: 28px;
-            border-radius: 20px;
-            border: 1px solid #ececec;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.05);
-            margin-top: 24px;
-            margin-bottom: 24px;
-        ">
-            <h3 style="margin-top: 0;">Hi! I'm your AI Math Tutor 👋</h3>
-            <p style="margin-bottom: 8px;">
-                Ask me a math question, and I'll guide you through it step by step.
-            </p>
-            <p style="margin-bottom: 0;">
-                I'll help you think through the problem instead of simply giving you the answer.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # Show previous conversation
-for message in st.session_state.get("tutor_messages",[]):
-
-    if message["role"] == "user":
-        avatar = "🧒"
-    else:
-        avatar = "🤖"
-
-    with st.chat_message(
-        message["role"],
-        avatar=avatar
-    ):
-        st.write(message["content"])
-
-    # Student input
-chat_input = st.chat_input(
-    "Ask a math question or respond to your tutor...",
-    accept_audio=True
-)
-
-student_message = None
-
-if chat_input:
-        
-       
-    if st.session_state.interaction_count >= MAX_INTERACTIONS:
-       st.warning(
-       f"You've reached the {MAX_INTERACTIONS}-message limit for this demo session."
-)
-       st.stop()
-
-    # If the child typed
-    if chat_input.text:
-        student_message = chat_input.text
-
-    # If the child recorded audio
-    elif chat_input.xaudio:
-        with st.spinner("Listening... 🎤"):
-            student_message = transcribe_audio(chat_input.audio)
-
-    if student_message:
-
-        st.session_state.interaction_count += 1
-
-        st.session_state.tutor_messages.append(      
-            {
-                "role": "user",
-                "content": student_message
-            }
-        )
-
-    with st.chat_message("user", avatar="🧒"):
-        st.write(student_message)
-
-        conversation = "\n".join(
-            f"{message['role']}: {message['content']}"
-            for message in st.session_state.tutor_messages
-        )
-
-        prompt = f"""
-You are a friendly, supportive and adaptive AI math tutor.
-
-Your purpose is to help students understand mathematics through
-guided thinking rather than simply giving them answers.
-
-Always respond in clear English suitable for an international audience.
-
-Teaching rules:
-- Guide the student step by step.
-- Ask one meaningful question at a time.
-- Adapt your explanation based on the student's responses.
-- If the student makes a mistake, explain it kindly and help them try again.
-- Do not reveal the final answer immediately.
-- Encourage reasoning and mathematical understanding.
-- Keep responses concise and age-appropriate.
-- If the student already understands a step, move forward instead of
-  repeating the explanation.
-
-Conversation so far:
-
-{conversation}
-
-Respond to the student's latest message as their math tutor.
-"""
-
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Thinking..."):
-                try:
-                    tutor_reply = ask_gemini(
-                        prompt,
-                        st.session_state.age
-)
-                    st.write(tutor_reply)
-
-                    st.session_state.tutor_messages.append(
-                        {
-                            "role": "assistant",
-                            "content": tutor_reply
-                        }
-                    )
-
-                except Exception:
-                    st.error(
-                        "The AI tutor is temporarily unavailable. "
-                        "Please try again."
-                    )
-# IMPORTANT: outside "if student_message"
-
-    st.stop()
-
-# LEVEL FUNCTIONS
-def starting_level(age):
-    if age <= 6:
-        return "easy"
-    elif age <= 8:
-        return "medium"
-    else:
-        return "hard"
-
-
-level_order = ["easy", "medium", "hard"]
-
-level_names = {
-    "easy": "Explorer 🌱",
-    "medium": "Adventurer 🚀",
-    "hard": "Math Master ⭐"
+st.set_page_config(page_title='Adaptive Math Tutor', page_icon='🌟', layout='wide', initial_sidebar_state='collapsed')
+# A aparência utiliza os temas NATIVOS do Streamlit, definidos em
+# .streamlit/config.toml. Não forçar fundos em CSS: isso causa conflitos
+# com os componentes BaseWeb, a barra superior e o tema escolhido pelo navegador.
+st.markdown("""<style>
+.block-container {max-width:1060px; padding-top:1.4rem; padding-bottom:3rem;}
+.hero {background:linear-gradient(110deg, #125a43 0%, #148d83 52%, #2477a5 100%); color:#ffffff;
+       padding:28px; border-radius:22px; margin-bottom:20px;}
+.hero h1, .hero p {color:#ffffff !important;}
+.hero h1 {margin:0;}
+.hero p {margin:10px 0 0; font-size:1.1rem;}
+@media(max-width:640px) {
+ .hero {padding:18px;}
+ .hero h1 {font-size:1.7rem;}
+ .block-container {padding:1rem;}
 }
+</style>""", unsafe_allow_html=True)
+
+with st.popover('🎨 Aparência'):
+    st.write('Para trocar entre claro e escuro, abra o menu **⋮** no canto superior direito, escolha **Settings / Configurações → Theme / Tema** e selecione **Dark / Escuro** ou **Light / Claro**.')
+    st.caption('O tema é aplicado pelo próprio Streamlit em toda a página, incluindo botões e formulários.')
+
+DEFAULTS = dict(screen='home', name='', age=6, world='1', level='easy', step=0, total=10,
+                stars=0, attempts=0, exercise=None, feedback=None, answered=False,
+                history=[], chat=[], chat_count=0, token=0, celebration=False)
+for k, v in DEFAULTS.items():
+    if k not in st.session_state:
+        st.session_state[k] = v.copy() if isinstance(v, list) else v
 
 
-def level_up(level):
-    if level == "hard":
-        return level
-
-    current = level_order.index(level)
-    return level_order[current + 1]
+def go_home():
+    st.session_state.screen = 'home'
+    st.session_state.feedback = None
+    st.rerun()
 
 
-def level_down(level):
-    if level == "easy":
-        return level
+def new_question():
+    previous = st.session_state.exercise
+    exercise = generate_exercise(st.session_state.world, st.session_state.level)
+    for _ in range(10):
+        if previous is None or exercise.expression != previous.expression:
+            break
+        exercise = generate_exercise(st.session_state.world, st.session_state.level)
+    st.session_state.exercise = exercise
+    st.session_state.attempts = 0
+    st.session_state.answered = False
+    st.session_state.feedback = None
+    st.session_state.token += 1
 
-    current = level_order.index(level)
-    return level_order[current - 1]
 
-
-# SESSION STATE
-if "started" not in st.session_state:
-    st.session_state.started = False
-
-if "challenge" not in st.session_state:
-    st.session_state.challenge = 0
-
-if "stars" not in st.session_state:
+def start_adventure():
+    st.session_state.level = starting_level(st.session_state.age)
+    st.session_state.step = 0
     st.session_state.stars = 0
-
-if "homework_help_active" not in st.session_state:
-    st.session_state.homework_help_active = False
-
-if "tutor_messages" not in st.session_state:
-    st.session_state.tutor_messages = []
-
-if "second_try" not in st.session_state:
-    st.session_state.second_try = False
-
-if "message" not in st.session_state:
-    st.session_state.message = None
+    st.session_state.history = []
+    st.session_state.exercise = None
+    st.session_state.celebration = False
+    st.session_state.screen = 'game'
+    new_question()
+    st.rerun()
 
 
 
-# HOME
-if st.session_state.get("homework_help_active", False):
-    st.stop()
-st.markdown(
-    """
-    <div class="hero">
-        <h1>✨ Adaptive Math Tutor</h1>
-        # Do not show the Home screen while Homework Help is open.
-        <p>Learn, explore and collect stars through your own adventure!</p>
-    </div>
-    """,
-    unsafe_allow_html=True
+def submit(value: str):
+    number = parse_answer(value)
+
+    if number is None:
+        st.session_state.feedback = (
+            'warning',
+            'Enter a valid whole number.'
+        )
+        return
+
+    ex = st.session_state.exercise
+
+    if st.session_state.answered:
+        return
+
+    st.session_state.attempts += 1
+    attempts = st.session_state.attempts
+    correct = number == ex.answer
+
+    a, operator, b = ex.expression.split()
+    a, b = int(a), int(b)
+
+    if correct:
+        st.session_state.stars += 1
+        st.session_state.history.append({
+            'question': ex.question,
+            'skill': ex.skill,
+            'response': number,
+            'correct_answer': ex.answer,
+            'correct': True,
+            'attempts': attempts,
+            'level': st.session_state.level
+        })
+
+        if attempts <= 2:
+            st.session_state.level = next_level(
+                st.session_state.level,
+                attempts == 1,
+                attempts == 2
+            )
+
+        st.session_state.answered = True
+        st.session_state.feedback = (
+            'success',
+            "🌟 Wonderful work! You figured it out! "
+            "Every step you took helped you learn. "
+            "Ready for another adventure?"
+        )
+        return
+
+    if attempts == 1:
+        message = (
+            "💛 Nice try! Mistakes help our brains grow. "
+            f"Here's a little hint: {ex.hint} "
+            "Take your time and try again!"
+        )
+
+    elif attempts == 2:
+        strategies = {
+            'Addition': f"Start with {a} and count forward {b} steps.",
+            'Subtraction': f"Start with {a} and count backward {b} steps.",
+            'Multiplication': f"Imagine {a} groups with {b} objects in each group.",
+            'Division': f"Imagine sharing {a} objects equally among {b} groups."
+        }
+
+        message = (
+            "🌈 You're still learning, and that's okay! "
+            f"Let's try another way. {strategies[ex.skill]} "
+            "What do you notice? Give it another try!"
+        )
+
+    elif attempts == 3:
+        message = (
+            "🧩 We can work through this together! "
+            "Try drawing the objects or using your fingers. "
+            "Work through the problem one small step at a time. "
+            "You have another chance!"
+        )
+    elif attempts == 4:
+        guided_steps = {
+            'Addition': (
+                f"Draw {a} circles. Now draw {b} more circles. "
+                "Count them all slowly. What total do you get?"
+            ),
+            'Subtraction': (
+                f"Draw {a} dots and cross out {b} of them. "
+                "How many dots are left?"
+            ),
+            'Multiplication': (
+                f"Draw {a} groups with {b} dots in each group. "
+                "Count every dot. How many are there altogether?"
+            ),
+            'Division': (
+                f"Draw {a} dots and share them equally among {b} groups. "
+                "How many dots are in each group?"
+            )
+        }
+
+        message = (
+            "🌟 Let's solve this together, step by step! "
+            f"{guided_steps[ex.skill]} "
+            "Take your time. You can try again!"
+        )
+    else:
+        explanations = {
+            'Addition': (
+                f"Start with {a} and count forward {b} more. "
+                f"{a} + {b} = {ex.answer}."
+            ),
+            'Subtraction': (
+                f"Start with {a} and take away {b}. "
+                f"{a} - {b} = {ex.answer}."
+            ),
+            'Multiplication': (
+                f"Make {a} equal groups with {b} objects each. "
+                f"Count all the objects together: {a} x {b} = {ex.answer}."
+            ),
+            'Division': (
+                f"Share {a} objects equally into {b} groups. "
+                f"Each group receives {ex.answer} objects."
+            )
+        }
+
+        st.session_state.history.append({
+            'question': ex.question,
+            'skill': ex.skill,
+            'response': number,
+            'correct_answer': ex.answer,
+            'correct': False,
+            'attempts': attempts,
+            'level': st.session_state.level
+        })
+
+        st.session_state.level = change_level(
+            st.session_state.level, -1
+        )
+        st.session_state.answered = True
+
+        message = (
+            "💙 You worked hard on this problem! "
+            "Let's look at the solution together.\n\n"
+            f"{explanations[ex.skill]}\n\n"
+            "Now you know one way to solve it. "
+            "Let's practice with another question!"
+        )
+
+    st.session_state.feedback = (
+        'info' if attempts >= 4 else 'warning',
+        message
+    )
+
+
+
+st.markdown('<div class="hero"><h1>🌟 Adaptive Math Tutor</h1><p>Explore worlds, solve challenges, and earn stars!</p></div>', unsafe_allow_html=True)
+screen = st.session_state.screen
+
+if screen == 'home':
+    st.subheader('👋 Let’s get started!')
+    with st.form('welcome'):
+        name = st.text_input('What should we call you?', value=st.session_state.name, max_chars=40)
+        age = st.number_input('How old are you?', min_value=5, max_value=12, value=int(st.session_state.age), step=1)
+        mode = st.radio('What would you like to do?', ['🎮 Practice & Play', '🦉 Learn with My Tutor'], horizontal=True)
+        world = st.selectbox('Choose your world', options=list(WORLDS), format_func=lambda k: f'{WORLDS[k][1]} {WORLDS[k][0]}', disabled=mode.startswith('📚'))
+        
+        buddy = st.selectbox(
+    "Choose your learning buddy!",
+    ["🐬 Dolphin", "🚀 Astronaut", "🦕 Dinosaur"]
 )
 
-
-# START SCREEN
-if not st.session_state.started:
-
-    name = st.text_input(
-        "🌟 What's your name?"
-    )
-
-    age = st.number_input(
-        "🎂 How old are you?",
-        min_value=5,
-        max_value=12,
-        value=6,
-        step=1
-    )
-
-    st.write("### What would you like to do today?")
-
-    mode = st.radio(
-        "Choose your adventure:",
-        [
-            "📚 Homework Help",
-            "🎮 Practice & Play"
-        ],
-        horizontal=True
-    )
-
-
-    # PRACTICE MODE
-    if mode == "🎮 Practice & Play":
-
-        st.write("### 🌈 Choose your favorite world")
-        st.write("Pick a world and begin your math adventure!")
-
-    available_worlds = {
-        f"{emoji} {world_name}": key
-        for key, (world_name, emoji) in worlds.items()
-        if key in questions
-    }
-
-    if "selected_world" not in st.session_state:
-        st.session_state.selected_world = None
-
-    world_descriptions = {
-        "1": "Dive into an ocean of discoveries!",
-        "2": "Explore the stars and distant planets!",
-        "3": "Travel back to the dinosaur world!",
-        "4": "Play, score and become a champion!",
-        "5": "Discover magical creatures and treasures!",
-        "6": "Race toward your next math challenge!"
-    }
-
-    cols = st.columns(3)
-
-    for index, (label, key) in enumerate(available_worlds.items()):
-
-        world_name, emoji = worlds[key]
-
-        with cols[index % 3]:
-
-            with st.container(border=True):
-
-                st.markdown(f"## {emoji}")
-                st.markdown(f"**{world_name}**")
-                st.caption(world_descriptions.get(key, "Let's explore!"))
-
-                is_selected = (
-                    st.session_state.selected_world == label
-                )
-
-                button_text = (
-                    "✓ Selected"
-                    if is_selected
-                    else "Explore ✨"
-                )
-
-                if st.button(
-                    button_text,
-                    key=f"world_{key}",
-                    use_container_width=True
-                ):
-                    st.session_state.selected_world = label
-                    st.rerun()
-
-    selected_world = st.session_state.selected_world
-
-    if selected_world in available_worlds:
-        st.success(f"Your adventure: {selected_world}")
-
-    # START BUTTON
-    if st.button(
-        "Start my adventure! 🚀",
-         use_container_width=True,
-         type="primary"
-):
-         if not name.strip():
-
-            st.warning("Tell me your name first! 😊")
-
-         elif mode == "📚 Homework Help":
+        buddy_name = st.text_input(
+        "Give your buddy a name!",
+         max_chars=20)
+        total = st.select_slider('Number of challenges', options=[5, 10, 15, 20], value=10, disabled=mode.startswith('📚'))
+        sent = st.form_submit_button('🚀 Start', type='primary', use_container_width=True)
+    if sent:
+        if not name.strip():
+            st.warning('Enter a nickname or first name to begin.')
+        else:
             st.session_state.name = name.strip()
             st.session_state.age = int(age)
-            st.session_state.homework_help_active = True
-            st.session_state.tutor_messages = []
-            st.rerun()
+            st.session_state.world = world
+            
+            st.session_state.buddy = buddy
+            st.session_state.buddy_name = buddy_name.strip() or buddy.split(" ", 1)[1]
 
-         elif selected_world not in available_worlds:
+            st.session_state.total = total
+            if mode.startswith('📚'):
+                st.session_state.screen = 'chat'
+                st.session_state.chat = []
+                st.session_state.chat_count = 0
+                st.rerun()
+            else:
+                start_adventure()
+    st.caption('Progress is saved only during this browser session. No account or permanent storage is used.')
 
-            st.warning("Choose your favorite world first! 🌈")
-
-         else:
-
-            st.session_state.started = True
-            st.session_state.name = name.strip()
-            st.session_state.age = age
-            st.session_state.world_choice = available_worlds[selected_world]
-
-            st.session_state.level = starting_level(age)
-
-            st.session_state.challenge = 0
-            st.session_state.stars = 0
-            st.session_state.second_try = False
-            st.session_state.message = None
-
-            st.rerun()
-
-# GAME SCREEN
-if st.session_state.get("started", False):
-    choice = st.session_state.world_choice
-
-    world_name = worlds[choice][0]
-    world_emoji = worlds[choice][1]
-    name = st.session_state.name
-    level = st.session_state.level
-
-
-    # PLAYER INFORMATION
-    st.write(
-        f"## {world_emoji} {world_name}"
-    )
-
-    st.write(
-        f"Welcome, **{name}**! Let's collect some stars. ✨"
-    )
-
-
-    # STATS
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "⭐ Stars",
-        f"{st.session_state.stars}/3"
-    )
-
-    col2.metric(
-        "🎯 Challenge",
-        f"{min(st.session_state.challenge + 1, 3)}/3"
-    )
-
-    col3.metric(
-        "🌱 Level",
-        level_names[level]
-    )
-
-
-    # MESSAGE FROM PREVIOUS ANSWER
-    if st.session_state.message:
-
-        message_type, message_text = st.session_state.message
-
-        if message_type == "success":
-            st.success(message_text)
-
-        elif message_type == "warning":
-            st.warning(message_text)
-
-        else:
-            st.info(message_text)
-
-        st.session_state.message = None
-
-
-    # ADVENTURE COMPLETE
-    if st.session_state.challenge >= 3:
-
-        st.progress(1.0)
-
-        st.write(
-            f"## 🏆 {world_name} Complete!"
-        )
-
-        stars = st.session_state.stars
-
-        st.write(
-            f"You collected **{stars} out of 3 stars!** ⭐"
-        )
-
-        if stars == 3:
-
-            st.balloons()
-
-            st.success(
-                "🌟 Perfect adventure! "
-                "You're a Math Explorer!"
-            )
-
-        elif stars == 2:
-
-            st.success(
-                "🎉 Great adventure! "
-                "You did an awesome job!"
-            )
-
-        else:
-
-            st.info(
-                "🌱 Nice work! Every challenge "
-                "makes your math skills stronger!"
-            )
-
-
-        if st.button(
-            "🌈 Play another adventure",
-            use_container_width=True
-        ):
-
-            st.session_state.started = False
-            st.session_state.challenge = 0
-            st.session_state.stars = 0
-            st.session_state.second_try = False
-            st.session_state.message = None
-
-            st.rerun()
-
-
-    # QUESTION SCREEN
-    else:
-
-        challenge = st.session_state.challenge
-        level = st.session_state.level
-
-        st.progress(
-            (challenge + 1) / 3
-        )
-
-
-        question, correct_answer, hint = (
-            questions[choice][level][challenge]
-        )
-
-
-        st.markdown(
-            f"""<div class="question-card">
-        <div class="world-tag">
-        🏁 Challenge {challenge + 1}
-        </div>
-        <h3>{question}</h3>
+elif screen == 'game':
+    world = WORLDS[st.session_state.world]
+    a, b = st.columns([5, 1])
+    a.subheader(f'{world[1]} {world[0]} · {html.escape(st.session_state.name)}')
+    with b:
+        if st.button('🏠 Home', use_container_width=True):
+            go_home()
+            
+   
+    
+    c1, c2, c3 = st.columns(3)
+    
+    c1.markdown(
+        f"""<div style="background:#FFF7DC;padding:14px;border-radius:12px;border-top:4px solid #FFD166;">
+        <div style="color:#856000;">⭐ Stars</div>
+        <div style="font-size:28px;color:#264B4A;font-weight:600;">{st.session_state.stars}/{st.session_state.total}</div>
         </div>""",
-             unsafe_allow_html=True
+        unsafe_allow_html=True
 )
 
+    c2.markdown(
+        f"""<div style="background:#FFF0EA;padding:14px;border-radius:12px;border-top:4px solid #FF9F86;">
+        <div style="color:#A14D39;">🎯 Challenges</div>
+        <div style="font-size:28px;color:#264B4A;font-weight:600;">{min(st.session_state.step+1, st.session_state.total)}/{st.session_state.total}</div>
+        </div>""",
+        unsafe_allow_html=True
+)
 
+    c3.markdown(
+        f"""<div style="background:#E7F5FF;padding:14px;border-radius:12px;border-top:4px solid #8ED8F8;">
+        <div style="color:#2477A5;">🏅 Level</div>
+        <div style="font-size:26px;color:#264B4A;font-weight:600;">{LEVEL_NAMES[st.session_state.level]}</div>
+        </div>""",
+        unsafe_allow_html=True
+)
 
-        # SHOW HINT ON SECOND TRY
-        if st.session_state.second_try:
+    buddy = st.session_state.get("buddy", "🐬 Dolphin")
+    buddy_name = st.session_state.get("buddy_name", "Bubbles")
 
-            st.info(hint)
-
-
-        # ANSWER FORM
-        with st.form(
-            key=f"answer_form_{challenge}_{level}_{st.session_state.second_try}"
-        ):
-
-            answer = st.text_input(
-                "✏️ Your answer"
-            )
-
-            submitted = st.form_submit_button(
-                "Check my answer ✨",
-                use_container_width=True,
-                 type="primary")
-
-
-            if submitted:
-
-                 answer = answer.strip()
-
-
-            if not answer:
-
-                st.warning(
-                    "Type an answer first 😊"
-                )
-
-
-            # CORRECT
-            elif answer == str(correct_answer):
-
-                st.session_state.stars += 1
-
-
-                # CORRECT AFTER HINT
-                if st.session_state.second_try:
-
-                    st.session_state.message = (
-                        "success",
-                        "🎉 You got it! Great thinking! "
-                        "You earned a star! ⭐"
-                    )
-
-                    st.session_state.second_try = False
-
-
-                # CORRECT FIRST TRY
-                else:
-
-                    st.session_state.message = (
-                        "success",
-                        "🌟 Amazing job! "
-                        "You earned a star!"
-                    )
-
-                    new_level = level_up(
-                        st.session_state.level
-                    )
-
-                    if new_level != st.session_state.level:
-
-                        st.session_state.message = (
-                            "success",
-                            "🌟 Amazing job! You earned a star! "
-                            "🚀 Your next challenge is leveling up!"
-                        )
-
-                        st.session_state.level = new_level
-
-
-                st.session_state.challenge += 1
-
-                st.rerun()
-
-
-            # WRONG
+    if st.session_state.answered:
+        buddy_message = "Great effort! Ready for another challenge? 🌟"
+    elif st.session_state.attempts > 0:
+        buddy_message = "Don't give up! Let's try another way. 💛"
+    else:
+        buddy_message = "I'm here with you! Let's solve this together! 🌟"
+    if st.session_state.feedback is not None:
+        typ, msg = st.session_state.feedback
+        getattr(st, typ)(
+        f"{buddy} **{buddy_name} says:**\n\n#### {msg}"
+    )
+    else:
+        st.info(
+        f"{buddy} **{buddy_name} says:**\n\n#### {buddy_message}"
+    )
+    if st.session_state.answered:
+        if st.button('➡️ Next challenge' if st.session_state.step + 1 < st.session_state.total else '🏆 See results', type='primary', use_container_width=True):
+            st.session_state.step += 1
+            if st.session_state.step == st.session_state.total:
+                st.session_state.screen = 'results'
             else:
+                new_question()
+            st.rerun()
+    else:
+        ex = st.session_state.exercise
+        st.info(f'**{ex.skill} · {LEVEL_NAMES[st.session_state.level]}**')
+        st.markdown(f'### {ex.question}')
+        with st.form(f'answer_{st.session_state.token}', clear_on_submit=True):
+            answer = st.text_input('Your answer', placeholder='Enter a number', max_chars=12)
+            submitted = st.form_submit_button('✅ Check answer', type='primary', use_container_width=True)
+        if submitted:
+            submit(answer)
+            st.rerun()
+        if st.session_state.attempts:
+            st.caption('Take your time! Read the hint above and try again. 💛')
 
-                # FIRST WRONG ANSWER
-                if not st.session_state.second_try:
+elif screen == 'results':
+    st.subheader('🏆 Adventure complete!')
+    if not st.session_state.celebration and st.session_state.stars == st.session_state.total:
+        st.balloons()
+        st.session_state.celebration = True
+    total = st.session_state.total
+    score = st.session_state.stars
+    st.metric('Final score', f'{score}/{total} stars')
+    st.progress(score / total)
+    st.write(f'You solved **{score} out of {total} challenges**. Every attempt helps you learn!')
+    with st.expander('📋 Review questions and answers'):
+        for i, row in enumerate(st.session_state.history, 1):
+            mark = '✅' if row['correct'] else '📘'
+            st.write(f"{mark} **{i}. {row['skill']}** — {row['question']}")
+            st.caption(f"Correct answer: {row['correct_answer']} | Your last answer: {row['response']} | Attempts: {row['attempts']}")
+    left, right = st.columns(2)
+    if left.button('🔄 Play again', use_container_width=True):
+        start_adventure()
+    if right.button('🏠 Choose another world', use_container_width=True):
+        go_home()
 
-                    st.session_state.second_try = True
+elif screen == 'chat':
+    st.subheader('📚 Math Tutor')
+    if st.button('← Back to home'):
+        go_home()
+    if not ai_available():
+        st.warning('AI tutor unavailable: set GEMINI_API_KEY in your .env file. Practice mode still works.')
+        st.stop()
+    st.caption('The tutor helps step by step. Do not share personal information.')
+    for msg in st.session_state.chat:
+        with st.chat_message(msg['role'], avatar='🧒' if msg['role'] == 'user' else '🤖'):
+            st.write(msg['content'])
+        
 
-                    st.session_state.message = (
-                        "warning",
-                        "💡 Almost! Here's a little hint."
-                    )
-
-                    st.rerun()
-
-
-                # SECOND WRONG ANSWER
-                else:
-
-                    st.session_state.message = (
-                        "info",
-                        f"🌱 Nice try! The answer was "
-                        f"{correct_answer}. "
-                        "Let's keep learning together!"
-                    )
-
-                    st.session_state.level = level_down(
-                        st.session_state.level
-                    )
-
-                    st.session_state.second_try = False
-                    st.session_state.challenge += 1
-
-                    st.rerun()
+    if st.session_state.chat_count >= 20:
+        st.info('You have reached the 20-message limit for this conversation.')
+        if st.button('Start a new conversation'):
+            st.session_state.chat = []
+            st.session_state.chat_count = 0
+            st.rerun()
+        st.stop()
+    user_input = st.chat_input('Ask a math question...', max_chars=1500)
+    if user_input and user_input.strip():
+        user_input = user_input.strip()
+        history = st.session_state.chat[-10:]
+        conversation = '\n'.join(f"{m['role']}: {m['content']}" for m in history)
+        st.session_state.chat.append({'role': 'user', 'content': user_input})
+        st.session_state.chat_count += 1
+        with st.chat_message('user', avatar='🧒'):
+            st.write(user_input)
+        with st.chat_message('assistant', avatar='🤖'):
+            try:
+                with st.spinner('Preparing an explanation...'):
+                    response = ask_gemini(f'Previous conversation:\n{conversation}\nStudent: {user_input}', st.session_state.age)
+                st.write(response)
+                st.session_state.chat.append({'role': 'assistant', 'content': response})
+            except Exception:
+                st.error('Could not reach the tutor. Check your API key, model, and internet connection.')

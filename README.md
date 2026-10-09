@@ -18,9 +18,9 @@ Students can interact with the tutor by typing or using voice input, making the 
 - AI-powered math tutoring using Google Gemini
 - Guided, step-by-step problem solving instead of immediately revealing answers
 - Text-based interaction with the tutor
-- Voice input with automatic speech transcription
 - Conversation memory that allows the tutor to follow the student's reasoning across multiple messages
 - Playful, child-friendly learning experience designed to make math feel more engaging and approachable
+
 
 ## How It Works
 
@@ -107,6 +107,10 @@ The application will open in your browser, where you can interact with the AI Ma
 - Expand the question bank to include more math topics and difficulty levels
 - Create richer learner profiles to personalize tutoring interactions
 - Conduct usability testing with learners to improve the educational experience
+- Interactive Animated Learning Companions: Introduce original animated characters that guide children through mathematical problem-solving in playful, themed learning environments.
+- Character Personalization: Allow learners to choose and name their own learning companion, such as an ocean creature, astronaut, or dinosaur.
+- Voice-Based Character Interaction: Explore speech recognition, spoken responses, and character animations to support more natural interactions, particularly for younger learners who are still developing reading and writing skills.
+- Child-Centered Engagement Research: Investigate how animated characters, personalization, and playful interactions influence children's engagement, motivation, and mathematical reasoning.
 
 ## Project Motivation
 
